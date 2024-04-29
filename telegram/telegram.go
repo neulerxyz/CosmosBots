@@ -62,15 +62,15 @@ func (tgb *TelegramBot) Run() {
     for {
         select {
         case event := <-tgb.missedBlocksCh:
-            message := fmt.Sprintf("Validator %s missed %d consecutive blocks!", event.ValidatorAddress, event.MissedCount)
+            message := fmt.Sprintf("Validator %s missed %d consecutive blocks from Height %d!", event.ValidatorAddress, event.MissedCount, int64(event.LastSignedHeight+1))
             tgb.sendTelegramMessage(message)
         
 		case event := <-tgb.validatorDownCh:
-			message := fmt.Sprintf("URGENT!! Validator down!", event.ValidatorAddress)
+			message := fmt.Sprintf("URGENT!! Validator down from height %d!", event.ValidatorAddress, int64(event.LastSignedHeight+1))
 			tgb.sendTelegramMessage(message)
             
         case event := <-tgb.validatorResolvedCh:
-            message := fmt.Sprintf("Validator %s is back online and signing blocks.", event.ValidatorAddress)
+            message := fmt.Sprintf("Validator %s is back online and signed block at height %d.", event.ValidatorAddress, event.LastSignedHeight)
             tgb.sendTelegramMessage(message)
 		
 		case <-tgb.stop:            return

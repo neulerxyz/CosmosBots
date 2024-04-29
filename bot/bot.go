@@ -75,9 +75,10 @@ func (b *Bot) processEvents(newBlockEventCh, newProposalEventCh <-chan ctypes.Re
     validatorMissed := 0
     var validatorAddress string
     var missedThreshold int64
+    var repeatThreshold int64
     var validatorDown bool
     var lastMissedMessageBlock int64
-    var repeatThreshold int64
+    var lastSignedHeight int64
     for {
         select {
         case event := <-newBlockEventCh:
@@ -95,24 +96,28 @@ func (b *Bot) processEvents(newBlockEventCh, newProposalEventCh <-chan ctypes.Re
                 if validatorDown {
                     resolvedEvent := config.ValidatorResolvedEvent{
                         ValidatorAddress: validatorAddress,
+                        LastSignedHeight: blockEvent.Block.Height,
                     }
                     b.validatorResolvedCh <- resolvedEvent
                     validatorDown = false
                 }
                 validatorMissed = 0
                 lastMissedMessageBlock = 0
+                lastSignedHeight = blockEvent.Block.Height
             } else {
                 validatorMissed++
                 log.Printf("Validator %s did not sign the block %d\n", validatorAddress, blockEvent.Block.Height)
 
-                if int64(validatorMissed) > missedThreshold {
+                if !validatorDown && int64(validatorMissed) > missedThreshold {
                     if lastMissedMessageBlock == 0 || blockEvent.Block.Height-lastMissedMessageBlock >= repeatThreshold {
                         event := config.MissedBlocksEvent{
                             ValidatorAddress: validatorAddress,
                             MissedCount:      int64(validatorMissed),
+                            LastSignedHeight: lastSignedHeight,
                         }
                         b.missedBlocksCh <- event
-                        lastMissedMessageBlock = blockEvent.Block.Height                    }
+                        lastMissedMessageBlock = blockEvent.Block.Height
+                    }
                 }
             }
 
@@ -120,6 +125,7 @@ func (b *Bot) processEvents(newBlockEventCh, newProposalEventCh <-chan ctypes.Re
                 if !validatorDown {
                     event := config.ValidatorDownEvent{
                         ValidatorAddress: validatorAddress,
+                        LastSignedHeight: lastSignedHeight,
                     }
                     b.validatorDownCh <- event
                     validatorDown = true
