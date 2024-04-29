@@ -8,3 +8,7 @@ type MissedBlocksEvent struct {
 type ValidatorDownEvent struct {
     ValidatorAddress string
 }
+
+type ValidatorResolvedEvent struct {
+    ValidatorAddress string
+}

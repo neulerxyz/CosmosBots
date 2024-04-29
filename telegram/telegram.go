@@ -16,12 +16,13 @@ import (
 )
 
 type TelegramBot struct {
-	cfg 			   *config.Config
-	botApi  		   *tgbotapi.BotAPI
-	commands 		   map[string]CommandInfo
-	stop               chan struct{}
-	missedBlocksCh     chan config.MissedBlocksEvent
-    validatorDownCh    chan config.ValidatorDownEvent
+	cfg 			    *config.Config
+	botApi  		    *tgbotapi.BotAPI
+	commands 		    map[string]CommandInfo
+	stop                chan struct{}
+	missedBlocksCh      chan config.MissedBlocksEvent
+    validatorDownCh     chan config.ValidatorDownEvent
+    validatorResolvedCh chan config.ValidatorResolvedEvent
 }
 
 type CommandInfo struct {
@@ -31,7 +32,8 @@ type CommandInfo struct {
 
 func NewTelegramBot(cfg *config.Config, 
 			missedBlocksCh chan config.MissedBlocksEvent, 
-			validatorDownCh chan config.ValidatorDownEvent) (*TelegramBot, error) {
+			validatorDownCh chan config.ValidatorDownEvent, 
+            validatorResolvedCh chan config.ValidatorResolvedEvent) (*TelegramBot, error) {
     bot, err := tgbotapi.NewBotAPI(cfg.TelegramBotToken)
     if err != nil {
         return nil, fmt.Errorf("failed to create Telegram bot: %v", err)
@@ -66,6 +68,10 @@ func (tgb *TelegramBot) Run() {
 		case event := <-tgb.validatorDownCh:
 			message := fmt.Sprintf("URGENT!! Validator down!", event.ValidatorAddress)
 			tgb.sendTelegramMessage(message)
+            
+        case event := <-tgb.validatorResolvedCh:
+            message := fmt.Sprintf("Validator %s is back online and signing blocks.", event.ValidatorAddress)
+            tgb.sendTelegramMessage(message)
 		
 		case <-tgb.stop:            return
         }

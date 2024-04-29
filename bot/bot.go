@@ -12,16 +12,18 @@ import (
 
 
 type Bot struct {
-    cfg 			  *config.Config
-	rpcEndpoint 	  string
-    rpcClient         *chttp.HTTP
-    missedBlocksCh    chan config.MissedBlocksEvent
-    validatorDownCh   chan config.ValidatorDownEvent
+    cfg 			    *config.Config
+	rpcEndpoint 	    string
+    rpcClient           *chttp.HTTP
+    missedBlocksCh      chan config.MissedBlocksEvent
+    validatorDownCh     chan config.ValidatorDownEvent
+    validatorResolvedCh chan config.ValidatorResolvedEvent
 }
 
 func NewBot(cfg *config.Config, 
         missedBlocksCh chan config.MissedBlocksEvent, 
-        validatorDownCh chan config.ValidatorDownEvent ) *Bot {
+        validatorDownCh chan config.ValidatorDownEvent,
+        validatorResolvedCh chan config.ValidatorResolvedEvent ) *Bot {
     bot := &Bot{
         cfg: 			  cfg,
 		rpcEndpoint:	  cfg.RPCEndpoint,
@@ -73,12 +75,16 @@ func (b *Bot) processEvents(newBlockEventCh, newProposalEventCh <-chan ctypes.Re
     validatorMissed := 0
     var validatorAddress string
     var missedThreshold int64
+    var validatorDown bool
+    var lastMissedMessageBlock int64
+    var repeatThreshold int64
     for {
         select {
         case event := <-newBlockEventCh:
             blockEvent, ok := event.Data.(tmtypes.EventDataNewBlock)
             validatorAddress = b.cfg.GetValidatorAddress()
             missedThreshold = b.cfg.GetMissedThreshold()
+            repeatThreshold = b.cfg.GetRepeatThreshold()
             if !ok {
                 log.Printf("Unexpected event type for NewBlock: %T", event.Data)
                 continue
@@ -86,25 +92,38 @@ func (b *Bot) processEvents(newBlockEventCh, newProposalEventCh <-chan ctypes.Re
 
             validatorSigned := b.isValidatorSigned(blockEvent.Block.LastCommit.Signatures)
             if validatorSigned {
+                if validatorDown {
+                    resolvedEvent := config.ValidatorResolvedEvent{
+                        ValidatorAddress: validatorAddress,
+                    }
+                    b.validatorResolvedCh <- resolvedEvent
+                    validatorDown = false
+                }
                 validatorMissed = 0
+                lastMissedMessageBlock = 0
             } else {
                 validatorMissed++
-				log.Printf("Validator %s did not sign the block %d\n", validatorAddress, blockEvent.Block.Height)
-            }
+                log.Printf("Validator %s did not sign the block %d\n", validatorAddress, blockEvent.Block.Height)
 
-            if int64(validatorMissed) > missedThreshold {
-                event := config.MissedBlocksEvent{
-                    ValidatorAddress: validatorAddress,
-                    MissedCount:      int64(validatorMissed),
+                if int64(validatorMissed) > missedThreshold {
+                    if lastMissedMessageBlock == 0 || blockEvent.Block.Height-lastMissedMessageBlock >= repeatThreshold {
+                        event := config.MissedBlocksEvent{
+                            ValidatorAddress: validatorAddress,
+                            MissedCount:      int64(validatorMissed),
+                        }
+                        b.missedBlocksCh <- event
+                        lastMissedMessageBlock = blockEvent.Block.Height                    }
                 }
-                b.missedBlocksCh <- event
             }
 
             if int64(validatorMissed) > 20 {
-                event := config.ValidatorDownEvent{
-                    ValidatorAddress: validatorAddress,
+                if !validatorDown {
+                    event := config.ValidatorDownEvent{
+                        ValidatorAddress: validatorAddress,
+                    }
+                    b.validatorDownCh <- event
+                    validatorDown = true
                 }
-                b.validatorDownCh <- event
             }
         }
     }

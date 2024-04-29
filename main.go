@@ -17,8 +17,9 @@ func main() {
 
     missedBlocksCh := make(chan config.MissedBlocksEvent)
     validatorDownCh := make(chan config.ValidatorDownEvent)
-    Bot := bot.NewBot(cfg, missedBlocksCh, validatorDownCh)
-    telegramBot, err := telegram.NewTelegramBot(cfg, missedBlocksCh, validatorDownCh)
+    validatorResCh := make(chan config.ValidatorResolvedEvent)
+    Bot := bot.NewBot(cfg, missedBlocksCh, validatorDownCh, validatorResCh)
+    telegramBot, err := telegram.NewTelegramBot(cfg, missedBlocksCh, validatorDownCh, validatorResCh)
     if err != nil {
         log.Fatalf("Failed to create TelegramBot: %v", err)
     }
@@ -29,7 +30,7 @@ func main() {
         if err != nil {
             log.Fatalf("Failed to start Bot: %v", err)
         }
-    }()
+        }()
 
     // Start TelegramBot in a separate goroutine
     go func() {
