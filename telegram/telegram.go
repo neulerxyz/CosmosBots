@@ -16,12 +16,13 @@ import (
 )
 
 type TelegramBot struct {
-	cfg 			   *config.Config
-	botApi  		   *tgbotapi.BotAPI
-	commands 		   map[string]CommandInfo
-	stop               chan struct{}
-	missedBlocksCh     chan config.MissedBlocksEvent
-    validatorDownCh    chan config.ValidatorDownEvent
+	cfg 			    *config.Config
+	botApi  		    *tgbotapi.BotAPI
+	commands 		    map[string]CommandInfo
+	stop                chan struct{}
+	missedBlocksCh      chan config.MissedBlocksEvent
+    validatorDownCh     chan config.ValidatorDownEvent
+    validatorResolvedCh chan config.ValidatorResolvedEvent
 }
 
 type CommandInfo struct {
@@ -31,7 +32,8 @@ type CommandInfo struct {
 
 func NewTelegramBot(cfg *config.Config, 
 			missedBlocksCh chan config.MissedBlocksEvent, 
-			validatorDownCh chan config.ValidatorDownEvent) (*TelegramBot, error) {
+			validatorDownCh chan config.ValidatorDownEvent, 
+            validatorResolvedCh chan config.ValidatorResolvedEvent) (*TelegramBot, error) {
     bot, err := tgbotapi.NewBotAPI(cfg.TelegramBotToken)
     if err != nil {
         return nil, fmt.Errorf("failed to create Telegram bot: %v", err)
@@ -60,12 +62,16 @@ func (tgb *TelegramBot) Run() {
     for {
         select {
         case event := <-tgb.missedBlocksCh:
-            message := fmt.Sprintf("Validator %s missed %d consecutive blocks!", event.ValidatorAddress, event.MissedCount)
+            message := fmt.Sprintf("Validator %s missed %d consecutive blocks from Height %d!", event.ValidatorAddress, event.MissedCount, int64(event.LastSignedHeight+1))
             tgb.sendTelegramMessage(message)
         
 		case event := <-tgb.validatorDownCh:
-			message := fmt.Sprintf("URGENT!! Validator down!", event.ValidatorAddress)
+			message := fmt.Sprintf("URGENT!! Validator down from height %d!", event.ValidatorAddress, int64(event.LastSignedHeight+1))
 			tgb.sendTelegramMessage(message)
+            
+        case event := <-tgb.validatorResolvedCh:
+            message := fmt.Sprintf("Validator %s is back online and signed block at height %d.", event.ValidatorAddress, event.LastSignedHeight)
+            tgb.sendTelegramMessage(message)
 		
 		case <-tgb.stop:            return
         }

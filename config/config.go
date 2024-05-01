@@ -16,6 +16,7 @@ type Config struct {
     TelegramBotToken string
     TelegramChatID   string
     MissedThreshold  int64
+    RepeatThreshold  int64
 	mutex            sync.RWMutex
 }
 
@@ -24,6 +25,24 @@ func (c *Config) SetValidatorAddress(address string) {
     c.mutex.Lock()
     defer c.mutex.Unlock()
     c.ValidatorAddress = address
+}
+
+func (c *Config) GetValidatorAddress() string {
+    c.mutex.RLock()
+    defer c.mutex.RUnlock()
+    return c.ValidatorAddress
+}
+
+func (c *Config) SetTelegramChatID(chatID int64) {
+    c.mutex.Lock()
+    defer c.mutex.Unlock()
+    c.TelegramChatID = strconv.FormatInt(chatID, 10)
+}
+
+func (c *Config) GetTelegramChatID() string {
+    c.mutex.RLock()
+    defer c.mutex.RUnlock()
+    return c.TelegramChatID
 }
 
 func (c *Config) SetMissedThreshold(missedThreshold int64) {
@@ -38,22 +57,10 @@ func (c *Config) GetMissedThreshold() int64 {
     return c.MissedThreshold
 }
 
-func (c *Config) GetValidatorAddress() string {
+func (c *Config) GetRepeatThreshold() int64 {
     c.mutex.RLock()
     defer c.mutex.RUnlock()
-    return c.ValidatorAddress
-}
-
-func (c *Config) GetTelegramChatID() string {
-    c.mutex.RLock()
-    defer c.mutex.RUnlock()
-    return c.TelegramChatID
-}
-
-func (c *Config) SetTelegramChatID(chatID int64) {
-    c.mutex.Lock()
-    defer c.mutex.Unlock()
-    c.TelegramChatID = strconv.FormatInt(chatID, 10)
+    return c.RepeatThreshold
 }
 
 func LoadConfig() (*Config, error) {
@@ -92,11 +99,22 @@ func LoadConfig() (*Config, error) {
         return nil, fmt.Errorf("invalid MISSED_THRESHOLD value: %v", err)
     }
 
+    repeatThresholdStr := os.Getenv("REPEAT_THRESHOLD")
+    if repeatThresholdStr == "" {
+        return nil, fmt.Errorf("REPEAT_THRESHOLD not set in .env file")
+    }
+
+    repeatThreshold, err := strconv.ParseInt(repeatThresholdStr, 10, 64)
+    if err != nil {
+        return nil, fmt.Errorf("invalid REPEAT_THRESHOLD value: %v", err)
+    }
+
     return &Config{
         RPCEndpoint:      rpcEndpoint,
         ValidatorAddress: validatorAddress,
         TelegramBotToken: telegramBotToken,
         TelegramChatID:   telegramChatID,
         MissedThreshold:  missedThreshold,
+        RepeatThreshold: repeatThreshold,
     }, nil
 }
