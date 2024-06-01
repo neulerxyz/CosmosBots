@@ -1,8 +1,0 @@
-rpcEndpoint = "http://initia.testnet.sentry1.neuler.xyz:26657"
-validatorAddress = "92BE8C87B03C32B9F141EFBE9CF400A645EB322F"
-telegramBotToken = "7309657304:AAG3tJV20Bcccnx5qrAhP2WqWyF1SRL_zF0"
-telegramChatID = "-4289431326"
-missedThreshold = 1
-repeatThreshold = 8
-referenceEndpoint = "http://initia-testnet-rpc.staking4all.org/status"
-checkEndpoints = ["http://initia.testnet.sentry1.neuler.xyz:26657/status","http://initia.testnet.sentry2.neuler.xyz:26657/status","http://initia.testnet.sentry3.neuler.xyz:26657/status"]
