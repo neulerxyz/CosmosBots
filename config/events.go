@@ -8,6 +8,7 @@ type MissedBlocksEvent struct {
 
 type ValidatorDownEvent struct {
     ValidatorAddress string
+    MissedCount      int64
     LastSignedHeight  int64
 }
 

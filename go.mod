@@ -5,7 +5,7 @@ go 1.21.6
 require (
 	github.com/cometbft/cometbft v0.38.6
 	github.com/go-telegram-bot-api/telegram-bot-api v4.6.4+incompatible
-	github.com/joho/godotenv v1.5.1
+	github.com/pelletier/go-toml v1.2.0
 )
 
 require (
