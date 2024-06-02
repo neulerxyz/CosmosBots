@@ -1,13 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/neulerxyz/CosmosBots/config"
 	"github.com/neulerxyz/CosmosBots/validatorbot"
-	"github.com/neulerxyz/CosmosBots/nodebot"
 	"github.com/neulerxyz/CosmosBots/telegram"
+	"github.com/neulerxyz/CosmosBots/nodebot"
 )
 
 func main() {
@@ -21,22 +20,37 @@ func main() {
 	validatorResCh := make(chan config.ValidatorResolvedEvent)
 	alertCh := make(chan string)
 
-	validatorBot := validatorbot.NewValidatorBot(cfg, missedBlocksCh, validatorDownCh, validatorResCh)
-	telegramBot, err := telegram.NewTelegramBot(cfg, missedBlocksCh, validatorDownCh, validatorResCh)
-	nodeBot := nodebot.NewNodeBot(cfg, alertCh)
+	// Initialize and start TelegramBot
+	telegramBot, err := telegram.NewTelegramBot(cfg, missedBlocksCh, validatorDownCh, validatorResCh, alertCh)
+	if err != nil {
+		log.Fatalf("Failed to create TelegramBot: %v", err)
+	}
+	go telegramBot.Run()
 
-	// Start Bots in a separate goroutine
-	go func() {
-		validatorBot.Start()
-	}()
-	go func() {
-		telegramBot.Run()
-	}()
-	go func() {
-		nodeBot.Start()
-	}()
+	// Conditionally initialize and start ValidatorBot
+	if cfg.GetValidatorAddress() != "" {
+		validatorBot := validatorbot.NewValidatorBot(cfg, missedBlocksCh, validatorDownCh, validatorResCh)
+		go func() {
+			err := validatorBot.Start()
+			if err != nil {
+				log.Fatalf("Failed to start ValidatorBot: %v", err)
+			}
+		}()
+	} else {
+		log.Println("ValidatorBot not started as ValidatorAddress is not set.")
+	}
 
-	fmt.Println("ValidatorBot, TelegramBot, and NodeBot started successfully!")
+	// Conditionally initialize and start NodeBot
+	if len(cfg.GetCheckEndpoints()) > 0 {
+		nodeBot := nodebot.NewNodeBot(cfg, alertCh)
+		go func() {
+			nodeBot.Start()
+		}()
+	} else {
+		log.Println("NodeBot not started as CheckEndpoints is not set.")
+	}
+
+	log.Println("TelegramBot started successfully!")
 
 	// Wait indefinitely
 	select {}

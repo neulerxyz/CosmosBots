@@ -23,18 +23,20 @@ type TelegramBot struct {
 	missedBlocksCh     chan config.MissedBlocksEvent
 	validatorDownCh    chan config.ValidatorDownEvent
 	validatorResolvedCh chan config.ValidatorResolvedEvent
+	alertCh            chan string
 	rateLimiter        <-chan time.Time
 }
 
 type CommandInfo struct {
-	Handler func(update tgbotapi.Update)
+	Handler func(update tgbotapi.Update, args string)
 	Help    string
 }
 
 func NewTelegramBot(cfg *config.Config,
 	missedBlocksCh chan config.MissedBlocksEvent,
 	validatorDownCh chan config.ValidatorDownEvent,
-	validatorResolvedCh chan config.ValidatorResolvedEvent) (*TelegramBot, error) {
+	validatorResolvedCh chan config.ValidatorResolvedEvent,
+	alertCh chan string) (*TelegramBot, error) {
 	bot, err := tgbotapi.NewBotAPI(cfg.TelegramBotToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Telegram bot: %v", err)
@@ -48,6 +50,7 @@ func NewTelegramBot(cfg *config.Config,
 		missedBlocksCh:     missedBlocksCh,
 		validatorDownCh:    validatorDownCh,
 		validatorResolvedCh: validatorResolvedCh,
+		alertCh:            alertCh,
 		rateLimiter:        time.Tick(1 * time.Second), // Limit to 1 message per second
 	}
 
@@ -73,6 +76,9 @@ func (tgb *TelegramBot) Run() {
 			message := fmt.Sprintf("Validator %s is back online and signed block at height %d.", event.ValidatorAddress, event.LastSignedHeight)
 			tgb.sendTelegramMessage(message)
 
+        case alert := <-tgb.alertCh:
+			tgb.sendTelegramMessage(alert)    
+
 		case <-tgb.stop:
 			return
 		}
@@ -84,22 +90,35 @@ func (tgb *TelegramBot) Stop() {
 }
 
 func (tgb *TelegramBot) initCommands() {
+	prefix := strings.ToLower(tgb.cfg.Name)
 	tgb.commands = map[string]CommandInfo{
 		"validator_addr": {
 			Handler: tgb.handleModifyValidatorAddr,
-			Help:    "Modify the validator address. Usage: /validator_addr <hex-address>",
+			Help:    "Modify the validator address. Usage: /" + prefix + " validator_addr <hex-address>",
 		},
 		"missed_blocks": {
 			Handler: tgb.handleMissedAmount,
-			Help:    "Set the threshold of missed blocks before sending alerts to TG. Usage: /missed_blocks <number>",
+			Help:    "Set the threshold of missed blocks before sending alerts to TG. Usage: /" + prefix + " missed_blocks <number>",
 		},
 		"start_bot": {
 			Handler: tgb.handleStartBot,
-			Help:    "Activate the bot in a group. Usage: /start_bot",
+			Help:    "Activate the bot in a group. Usage: /" + prefix + " start_bot",
+		},
+		"faulty_endpoints": {
+			Handler: tgb.handleFaultyEndpoints,
+			Help:    "Show the list of faulty endpoints. Usage: /" + prefix + " faulty_endpoints",
+		},
+		"validator_status": {
+			Handler: tgb.handleValidatorStatus,
+			Help:    "Show the validator status. Usage: /" + prefix + " validator_status",
+		},
+		"node_status": {
+			Handler: tgb.handleNodeStatus,
+			Help:    "Show the node status. Usage: /" + prefix + " node_status",
 		},
 		"help": {
 			Handler: tgb.handleHelp,
-			Help:    "Show available commands and their usage.",
+			Help:    "Show available commands and their usage. Usage: /" + prefix + " help",
 		},
 	}
 }
@@ -113,24 +132,34 @@ func (tgb *TelegramBot) handleTelegramCommands() {
 		log.Fatal(err)
 	}
 
+	prefix := strings.ToLower(tgb.cfg.Name) + " "
+
 	for update := range updates {
-		if update.Message == nil || !update.Message.IsCommand() {
+		if update.Message == nil {
 			continue
 		}
 
-		command := update.Message.Command()
-		if info, ok := tgb.commands[command]; ok {
-			info.Handler(update)
-		} else {
-			tgb.sendTelegramMessage("Unknown command.")
+		message := update.Message.Text
+		if strings.HasPrefix(message, "/"+prefix) {
+			commandWithArgs := strings.TrimPrefix(message, "/"+prefix)
+			parts := strings.SplitN(commandWithArgs, " ", 2)
+			command := parts[0]
+			args := ""
+			if len(parts) > 1 {
+				args = parts[1]
+			}
+
+			if info, ok := tgb.commands[command]; ok {
+				info.Handler(update, args)
+			} else {
+				tgb.sendTelegramMessage("Unknown command.")
+			}
 		}
 	}
 }
 
-func (tgb *TelegramBot) handleModifyValidatorAddr(update tgbotapi.Update) {
-	args := update.Message.CommandArguments()
-
-	if len(args) == 0 {
+func (tgb *TelegramBot) handleModifyValidatorAddr(update tgbotapi.Update, args string) {
+	if args == "" {
 		tgb.sendTelegramMessage("Please provide a validator address.")
 		return
 	}
@@ -138,9 +167,8 @@ func (tgb *TelegramBot) handleModifyValidatorAddr(update tgbotapi.Update) {
 	validatorAddr := strings.TrimSpace(args)
 
 	// Validate the provided validator address
-	validationErr := tgb.isValidValidatorAddress(validatorAddr)
-	if validationErr != nil {
-		tgb.sendTelegramMessage(validationErr.Error())
+	if err := tgb.isValidValidatorAddress(validatorAddr); err != nil {
+		tgb.sendTelegramMessage(err.Error())
 		return
 	}
 	tgb.cfg.SetValidatorAddress(validatorAddr)
@@ -212,25 +240,23 @@ func (tgb *TelegramBot) checkValidatorExists(address string) (bool, error) {
 	return false, nil
 }
 
-func (tgb *TelegramBot) handleMissedAmount(update tgbotapi.Update) {
-	args := update.Message.CommandArguments()
-	msg := ""
-
-	if len(args) == 0 {
-		msg = "Please provide the number of missed blocks."
-	} else {
-		missedThreshold, err := strconv.ParseInt(args, 10, 64)
-		if err != nil {
-			msg = "Invalid number of missed blocks. Please provide a valid integer."
-		} else {
-			tgb.cfg.SetMissedThreshold(missedThreshold)
-			msg = fmt.Sprintf("Number of missed blocks updated to: %d", missedThreshold)
-		}
+func (tgb *TelegramBot) handleMissedAmount(update tgbotapi.Update, args string) {
+	if args == "" {
+		tgb.sendTelegramMessage("Please provide the number of missed blocks.")
+		return
 	}
-	tgb.sendTelegramMessage(msg)
+
+	missedThreshold, err := strconv.ParseInt(args, 10, 64)
+	if err != nil {
+		tgb.sendTelegramMessage("Invalid number of missed blocks. Please provide a valid integer.")
+		return
+	}
+
+	tgb.cfg.SetMissedThreshold(missedThreshold)
+	tgb.sendTelegramMessage(fmt.Sprintf("Number of missed blocks updated to: %d", missedThreshold))
 }
 
-func (tgb *TelegramBot) handleStartBot(update tgbotapi.Update) {
+func (tgb *TelegramBot) handleStartBot(update tgbotapi.Update, args string) {
 	chatID := update.Message.Chat.ID
 	chatType := update.Message.Chat.Type
 
@@ -242,12 +268,52 @@ func (tgb *TelegramBot) handleStartBot(update tgbotapi.Update) {
 	}
 }
 
-func (tgb *TelegramBot) handleHelp(update tgbotapi.Update) {
+func (tgb *TelegramBot) handleFaultyEndpoints(update tgbotapi.Update, args string) {
+	faultyReferences := tgb.cfg.GetFaultyReferenceEndpoints()
+	faultyChecks := tgb.cfg.GetFaultyCheckEndpoints()
+
+	message := "Faulty Reference Endpoints:\n"
+	for _, endpoint := range faultyReferences {
+		message += fmt.Sprintf("- %s\n", endpoint)
+	}
+
+	message += "\nFaulty Check Endpoints:\n"
+	for _, endpoint := range faultyChecks {
+		message += fmt.Sprintf("- %s\n", endpoint)
+	}
+
+	tgb.sendTelegramMessage(message)
+}
+
+func (tgb *TelegramBot) handleValidatorStatus(update tgbotapi.Update, args string) {
+	validatorAddress := tgb.cfg.GetValidatorAddress()
+	lastSignedHeight := tgb.cfg.ValidatorStatus.LastSignedHeight
+	isDown := tgb.cfg.ValidatorStatus.IsDown
+
+	message := fmt.Sprintf("Validator Address: %s\nLast Signed Height: %d\nIs Down: %v", validatorAddress, lastSignedHeight, isDown)
+	tgb.sendTelegramMessage(message)
+}
+
+func (tgb *TelegramBot) handleNodeStatus(update tgbotapi.Update, args string) {
+	for _, endpoint := range tgb.cfg.GetCheckEndpoints() {
+		status, exists := tgb.cfg.GetNodeStatus(endpoint)
+		if !exists {
+			message := fmt.Sprintf("No status available for endpoint: %s", endpoint)
+			tgb.sendTelegramMessage(message)
+			continue
+		}
+
+		message := fmt.Sprintf("Node %s\nLatest Block Height: %d\nIs Synced: %v", endpoint, status.LatestBlockHeight, status.IsSynced)
+		tgb.sendTelegramMessage(message)
+	}
+}
+
+func (tgb *TelegramBot) handleHelp(update tgbotapi.Update, args string) {
 	commandsInfo := tgb.GetCommandsInfo()
 
 	var helpText string
 	for command, info := range commandsInfo {
-		helpText += fmt.Sprintf("/%s - %s\n", command, info)
+		helpText += fmt.Sprintf("/%s %s - %s\n", strings.ToLower(tgb.cfg.Name), command, info)
 	}
 	tgb.sendTelegramMessage(helpText)
 }

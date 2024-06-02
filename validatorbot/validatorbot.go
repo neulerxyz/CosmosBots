@@ -121,6 +121,8 @@ func (b *ValidatorBot) handleValidatorSigned(blockHeight int64) {
 	b.state.LastMissedAlertHeight = 0
 	b.state.LastDownAlertHeight = 0
 	b.state.LastSignedHeight = blockHeight
+	b.cfg.SetValidatorLastSignedHeight(blockHeight)
+	b.cfg.SetValidatorIsDown(false)
 	b.state.StartMissedHeight = 0
 }
 
@@ -129,7 +131,7 @@ func (b *ValidatorBot) handleValidatorMissedBlock(blockHeight int64, validatorAd
 		b.state.StartMissedHeight = blockHeight
 	}
 	b.state.MissedBlocks++
-	//log.Printf("Validator %s did not sign the block %d\n", validatorAddress, blockHeight)
+	log.Printf("Validator %s did not sign the block %d\n", validatorAddress, blockHeight)
 
 	if !b.state.IsDown && int64(b.state.MissedBlocks) > missedThreshold {
 		if b.state.LastMissedAlertHeight == 0 || (blockHeight-b.state.LastMissedAlertHeight >= repeatThreshold) {
@@ -138,7 +140,7 @@ func (b *ValidatorBot) handleValidatorMissedBlock(blockHeight int64, validatorAd
 			b.state.LastMissedAlertHeight = blockHeight
 		}
 
-		if int64(b.state.MissedBlocks) > 5{
+		if int64(b.state.MissedBlocks) > 20 {
 			b.sendValidatorDownAlert(blockHeight, validatorAddress)
 		}
 	} else if b.state.IsDown && (blockHeight-b.state.LastDownAlertHeight >= repeatThreshold) {
@@ -164,6 +166,7 @@ func (b *ValidatorBot) sendValidatorDownAlert(blockHeight int64, validatorAddres
 	b.validatorDownCh <- event
 	b.state.IsDown = true
 	b.state.LastDownAlertHeight = blockHeight
+	b.cfg.SetValidatorIsDown(true)
 }
 
 func (b *ValidatorBot) isValidatorSigned(signatures []tmtypes.CommitSig) bool {

@@ -1,8 +1,9 @@
+name = "ExampleBot"
 rpcEndpoint = "http://example.com:26657"
 validatorAddress = "validator_address_here"
 telegramBotToken = "your_telegram_bot_token"
 telegramChatID = "your_telegram_chat_id"
 missedThreshold = 5
 repeatThreshold = 10
-referenceEndpoint = "http://reference.com:26657/status"
+referenceEndpoints = ["http://reference-endpoint1", "http://reference-endpoint2", "http://reference-endpoint3"]
 checkEndpoints = ["http://check1.com:26657/status", "http://check2.com:26657/status"]
